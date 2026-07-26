@@ -30,15 +30,27 @@ export function setupMessageHandler(sock: WASocket) {
             return; // Filtro de ruído: Sai silenciosamente
         }
 
+        // Desembrulha wrappers do WhatsApp (mensagens temporárias, encaminhadas ou com legenda)
+        let messageContent = msg.message;
+        if (messageContent?.ephemeralMessage?.message) {
+            messageContent = messageContent.ephemeralMessage.message;
+        }
+        if (messageContent?.viewOnceMessage?.message) {
+            messageContent = messageContent.viewOnceMessage.message;
+        }
+        if (messageContent?.viewOnceMessageV2?.message) {
+            messageContent = messageContent.viewOnceMessageV2.message;
+        }
+        if (messageContent?.documentWithCaptionMessage?.message) {
+            messageContent = messageContent.documentWithCaptionMessage.message;
+        }
+
         // Analisar o tipo de mensagem para ver se contém mídia (imagem ou documento)
-        const messageType = Object.keys(msg.message || {})[0];
+        const messageType = Object.keys(messageContent || {})[0];
         
         let isMedia = false;
         if (messageType === 'imageMessage' || messageType === 'documentMessage') {
             isMedia = true;
-        } else if (messageType === 'extendedTextMessage') {
-            // Pode ser um texto encaminhado ou com citação, mas não é a mídia original
-            isMedia = false;
         }
 
         if (!isMedia) {
