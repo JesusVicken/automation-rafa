@@ -4,9 +4,13 @@ import pino from 'pino';
 import * as qrcode from 'qrcode-terminal';
 import * as dotenv from 'dotenv';
 import { setupMessageHandler } from './src/messageHandler';
+import { startWebServer, updateQrCode, updateConnectionStatus } from './src/qrServer';
 
 // Carrega as variáveis de ambiente
 dotenv.config();
+
+// Inicializa o servidor Web para exibir o QR Code em https://automation-rafa.onrender.com/qr
+startWebServer();
 
 /**
  * Função responsável por estabelecer a conexão com o WhatsApp.
@@ -38,6 +42,7 @@ export async function connectToWhatsApp() {
         if (qr) {
             console.log('Escaneie o QR Code abaixo com seu WhatsApp:');
             qrcode.generate(qr, { small: true });
+            updateQrCode(qr); // Atualiza o QR Code na Página Web /qr
         }
 
         if (connection === 'close') {
@@ -46,6 +51,7 @@ export async function connectToWhatsApp() {
             
             console.log('Conexão encerrada. Motivo:', lastDisconnect?.error);
             console.log('Tentando reconectar:', shouldReconnect);
+            updateConnectionStatus(false);
             
             if (shouldReconnect) {
                 // Reconecta
@@ -55,6 +61,7 @@ export async function connectToWhatsApp() {
             }
         } else if (connection === 'open') {
             console.log('Conexão aberta com sucesso!');
+            updateConnectionStatus(true); // Atualiza status para conectado na Página Web /qr
             
             try {
                 // Busca todos os grupos em que o número participa
