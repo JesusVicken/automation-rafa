@@ -127,7 +127,7 @@ export function startWebServer() {
         }
     });
 
-    app.listen(PORT, () => {
-        console.log(`[+] Servidor Web do QR Code ativo em: http://localhost:${PORT}/qr`);
+    app.listen(Number(PORT), '0.0.0.0', () => {
+        console.log(`[+] Servidor Web do QR Code ativo na porta ${PORT} (0.0.0.0)`);
     });
 }
