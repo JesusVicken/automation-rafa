@@ -1,4 +1,4 @@
-import { createWorker } from 'tesseract.js';
+import { createWorker, Worker } from 'tesseract.js';
 
 export interface OcrResult {
     valor: string;
@@ -9,22 +9,38 @@ export interface OcrResult {
     status: string;
 }
 
+// Instância reutilizável do Worker do Tesseract (Singleton para alta velocidade)
+let workerPromise: Promise<Worker> | null = null;
+
+async function getWorker(): Promise<Worker> {
+    if (!workerPromise) {
+        console.log('[*] Inicializando Motor de OCR Tesseract.js (Alta Velocidade)...');
+        workerPromise = createWorker('por');
+    }
+    return workerPromise;
+}
+
 /**
- * Processa o comprovante financeiro localmente sem gastar APIs pagas ou depender de cupons de IA.
- * Usa Tesseract.js (OCR local) + Regex inteligente pré-configurado para bancos brasileiros.
- * 
- * Modelos suportados: Banco do Brasil, Banco Inter, Nubank, Itaú, Bradesco, Santander,
- * C6 Bank, Caixa Econômica, PagBank, Sicoob/SiPag e outros.
+ * Mapeamento dos meses por extenso para números
+ */
+const MESES: { [key: string]: string } = {
+    'janeiro': '01', 'fevereiro': '02', 'março': '03', 'marco': '03',
+    'abril': '04', 'maio': '05', 'junho': '06', 'julho': '07',
+    'agosto': '08', 'setembro': '09', 'outubro': '10', 'novembro': '11', 'dezembro': '12'
+};
+
+/**
+ * Processa o comprovante financeiro localmente com máxima velocidade e precisão.
  */
 export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 'image/jpeg'): Promise<OcrResult | null> {
     try {
-        console.log('[*] Processando comprovante via Tesseract.js (OCR 100% Local)...');
+        const startTime = Date.now();
+        console.log('[*] Processando comprovante via Tesseract.js Otimizado...');
         
-        // Inicializa o worker do Tesseract para português
-        const worker = await createWorker('por');
+        const worker = await getWorker();
         const { data: { text } } = await worker.recognize(buffer);
-        await worker.terminate();
 
+        console.log(`[+] OCR concluído em ${(Date.now() - startTime)}ms!`);
         console.log('\n--- Texto Extraído pelo OCR ---');
         console.log(text);
         console.log('-------------------------------\n');
@@ -34,15 +50,13 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
         // =============================================
         // 1. EXTRAÇÃO DO VALOR
         // =============================================
-        // Prioridade 1: "Valor total" → R$ xxx (evita pegar Desconto/Juros/Multa)
-        // Prioridade 2: "Total a pagar" → R$ xxx (padrão SiPag/Sicoob)
-        // Prioridade 3: "Pagamento realizado" → R$ xxx (padrão Inter header)
-        // Prioridade 4: Primeiro R$ que NÃO seja R$ 0,00
         let valor = 'R$ 0,00';
         
+        // Padrões específicos por ordem de precisão:
         const valorTotalMatch = text.match(/Valor\s+total\s*:?\s*(R\$\s?[\d.,]+)/i);
         const totalAPagarMatch = text.match(/Total\s+a\s+pagar\s*:?\s*(R\$\s?[\d.,]+)/i);
-        const pagamentoRealizadoMatch = text.match(/Pagamento\s+realizado\s*:?\s*(R\$\s?[\d.,]+)/i);
+        const pagamentoRealizadoMatch = text.match(/Pagamento\s+realizado\s*\n?\s*(R\$\s?[\d.,]+)/i);
+        const valorIsoladoMatch = text.match(/^Valor\s*\n?\s*(R\$\s?[\d.,]+)/im);
         
         if (valorTotalMatch) {
             valor = valorTotalMatch[1];
@@ -50,8 +64,10 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
             valor = totalAPagarMatch[1];
         } else if (pagamentoRealizadoMatch) {
             valor = pagamentoRealizadoMatch[1];
+        } else if (valorIsoladoMatch) {
+            valor = valorIsoladoMatch[1];
         } else {
-            // Fallback: pega todos os R$ e usa o primeiro que NÃO seja R$ 0,00
+            // Fallback: Pega o primeiro R$ que não seja R$ 0,00
             const allValues = text.match(/R\$\s?[\d.,]+/gi) || [];
             for (const v of allValues) {
                 const cleaned = v.replace(/[^\d,]/g, '').replace(',', '.');
@@ -65,35 +81,38 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
         // =============================================
         // 2. EXTRAÇÃO DA DATA
         // =============================================
-        // Prioridade 1: "Data do pagamento" ou "Data do pagam" → dd/mm/aaaa
-        // Prioridade 2: Qualquer data dd/mm/aaaa no texto
         let data = new Date().toLocaleDateString('pt-BR');
 
-        const dataPagMatch = text.match(/Data\s+d[eo]\s+pagam[^\n]*?(\d{2}[\/\.-]\d{2}[\/\.-]\d{4})/i);
+        // Formato dd/mm/aaaa
+        const dataPagMatch = text.match(/(?:Data\s+d[eo]\s+pagam[^\n]*?|Data\s+de\s+lan[çc]amento\s*:?\s*|Data\s+e\s+hor[áa]rio[^\n]*?)(\d{2}[\/\.-]\d{2}[\/\.-]\d{4})/i);
+        // Formato extenso: "24 de julho de 2026"
+        const dataExtensoMatch = text.match(/(\d{1,2})\s+de\s+([a-z]+)\s+de\s+(\d{4})/i);
+
         if (dataPagMatch) {
             data = dataPagMatch[1];
+        } else if (dataExtensoMatch) {
+            const dia = dataExtensoMatch[1].padStart(2, '0');
+            const mesExtenso = dataExtensoMatch[2].toLowerCase();
+            const ano = dataExtensoMatch[3];
+            const mes = MESES[mesExtenso] || '01';
+            data = `${dia}/${mes}/${ano}`;
         } else {
             const dataMatch = text.match(/(\d{2}[\/\.-]\d{2}[\/\.-]\d{4})/);
             if (dataMatch) data = dataMatch[1];
         }
 
         // =============================================
-        // 3. EXTRAÇÃO DO PAGADOR (QUEM PAGOU)
+        // 3. EXTRAÇÃO DO PAGADOR / ORIGEM / NOME
         // =============================================
-        // Prioridade 1: Seção "Quem pagou" → procura "Nome" nas linhas seguintes (padrão Inter)
-        // Prioridade 2: Linha "Pagador" isolada → próxima linha é o nome (padrão BB/Pix)
-        // Prioridade 3: "Nome" seguido de texto EM MAIÚSCULAS (indica nome de pessoa)
-        // Prioridade 4: "Quem vai receber" → próxima linha (padrão SiPag, quando não há pagador)
         let pagador = 'Não identificado';
 
-        // Estratégia 1: Seção "Quem pagou" (Inter)
+        // Padrão C6 Bank: "Conta de origem" -> linha seguinte é o nome
         for (let i = 0; i < lines.length; i++) {
-            if (/^Quem\s+pagou/i.test(lines[i])) {
-                // Procura "Nome" nas próximas 5 linhas após "Quem pagou"
-                for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
-                    const nomeMatch = lines[j].match(/^Nome\s+(.+)/i);
-                    if (nomeMatch) {
-                        pagador = nomeMatch[1].trim();
+            if (/Conta\s+de\s+origem/i.test(lines[i])) {
+                for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+                    // Pega a linha com o nome (ignora ícones ou 'Banco:')
+                    if (lines[j].length > 3 && !/^(Banco|Agência|Conta|JP|GO|\d+)/i.test(lines[j])) {
+                        pagador = lines[j];
                         break;
                     }
                 }
@@ -101,35 +120,46 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
             }
         }
 
-        // Estratégia 2: "Pagador" como título de seção (BB / Pix)
+        // Padrão Banco Inter: "Quem pagou" -> "Nome <NOME>"
         if (pagador === 'Não identificado') {
             for (let i = 0; i < lines.length; i++) {
-                // Só faz match se a linha inteira for "Pagador" (ou quase)
-                if (/^Pagador$/i.test(lines[i]) || /^Pagador\s*$/i.test(lines[i])) {
-                    if (i + 1 < lines.length) {
-                        // Próxima linha é o nome (ignora se for CPF, Agência, etc.)
-                        const nextLine = lines[i + 1];
-                        if (!/^(CPF|CNPJ|Agência|Conta|Instituição|Chave)/i.test(nextLine)) {
-                            pagador = nextLine;
+                if (/^Quem\s+pagou/i.test(lines[i])) {
+                    for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+                        const nomeMatch = lines[j].match(/^Nome\s+(.+)/i);
+                        if (nomeMatch) {
+                            pagador = nomeMatch[1].trim();
                             break;
                         }
                     }
-                }
-            }
-        }
-
-        // Estratégia 3: "Nome" seguido de texto em MAIÚSCULAS (ex: "Nome MARIA FATIMA MARQUES")
-        if (pagador === 'Não identificado') {
-            for (let i = 0; i < lines.length; i++) {
-                const nomeMatch = lines[i].match(/^Nome\s+([A-ZÁÉÍÓÚÀÂÊÔÃÕÇ][A-ZÁÉÍÓÚÀÂÊÔÃÕÇ\s]{4,})/);
-                if (nomeMatch) {
-                    pagador = nomeMatch[1].trim();
                     break;
                 }
             }
         }
 
-        // Estratégia 4: "Quem vai receber" (SiPag/Sicoob - usa beneficiário como referência)
+        // Padrão Banco do Brasil: "Pagador" na linha, nome na linha de baixo
+        if (pagador === 'Não identificado') {
+            for (let i = 0; i < lines.length; i++) {
+                if (/^Pagador$/i.test(lines[i])) {
+                    if (i + 1 < lines.length && !/^(CPF|CNPJ|Agência|Conta|Instituição|Chave)/i.test(lines[i + 1])) {
+                        pagador = lines[i + 1];
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Padrão Itaú Detalhe do lançamento: Nome da loja/estabelecimento (Ex: "Ecommerce geoplas")
+        if (pagador === 'Não identificado') {
+            const detalheLancamento = lines.find(l => /Detalhe\s+do\s+lan[çc]amento/i.test(l));
+            if (detalheLancamento) {
+                const idx = lines.indexOf(detalheLancamento);
+                if (idx + 1 < lines.length) {
+                    pagador = lines[idx + 1]; // Pega o nome do estabelecimento
+                }
+            }
+        }
+
+        // Padrão SiPag/Sicoob: "Quem vai receber"
         if (pagador === 'Não identificado') {
             for (let i = 0; i < lines.length; i++) {
                 if (/Quem\s+vai\s+receber/i.test(lines[i])) {
@@ -141,10 +171,15 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
             }
         }
 
-        // Estratégia 5: "Beneficiário" ou "Benefici" seguido de texto
+        // Fallback: Busca linha "Nome <TEXTO_EM_MAIUSCULAS>"
         if (pagador === 'Não identificado') {
-            const benefMatch = text.match(/Benefici[áa]rio\s*:?\s*([^\n\r]+)/i);
-            if (benefMatch) pagador = benefMatch[1].trim();
+            for (let i = 0; i < lines.length; i++) {
+                const nomeMatch = lines[i].match(/^Nome\s+([A-ZÁÉÍÓÚÀÂÊÔÃÕÇ][A-ZÁÉÍÓÚÀÂÊÔÃÕÇ\s]{4,})/);
+                if (nomeMatch) {
+                    pagador = nomeMatch[1].trim();
+                    break;
+                }
+            }
         }
 
         // =============================================
@@ -152,98 +187,80 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
         // =============================================
         let banco = 'Banco não identificado';
         
-        if (/Banco do Brasil|Comprovante BB|BCO DO BRASIL/i.test(text)) {
+        if (/C6\s*Bank|336\s*-\s*Banco\s*C6/i.test(text)) {
+            banco = 'C6 Bank';
+        } else if (/Banco\s*Inter|inter\b/i.test(text)) {
+            banco = 'Banco Inter';
+        } else if (/Banco\s+do\s+Brasil|Comprovante\s+BB|BCO\s+DO\s+BRASIL/i.test(text)) {
             banco = 'Banco do Brasil';
-        } else if (/Nubank|Nu Pagamentos/i.test(text)) {
-            banco = 'Nubank';
-        } else if (/Itaú|Itau/i.test(text)) {
+        } else if (/Itaú|Itau|ITAÚ\s+UNIBANCO/i.test(text)) {
             banco = 'Itaú';
+        } else if (/Sicoob|sipag/i.test(text)) {
+            banco = 'Sicoob';
+        } else if (/Nubank|Nu\s+Pagamentos/i.test(text)) {
+            banco = 'Nubank';
         } else if (/Bradesco/i.test(text)) {
             banco = 'Bradesco';
-        } else if (/Banco\s*Inter|inter\s*S[\.\s\/]?A/i.test(text)) {
-            banco = 'Banco Inter';
         } else if (/Santander/i.test(text)) {
             banco = 'Santander';
-        } else if (/C6\s*S\.A\.|C6\s*Bank/i.test(text)) {
-            banco = 'C6 Bank';
         } else if (/Caixa\s*Econ[oô]mica|CEF\b/i.test(text)) {
             banco = 'Caixa Econômica';
         } else if (/PagBank|PagSeguro/i.test(text)) {
             banco = 'PagBank';
-        } else if (/Sicoob|sipag/i.test(text)) {
-            banco = 'Sicoob';
         } else if (/Sicredi/i.test(text)) {
             banco = 'Sicredi';
         } else if (/Mercado\s*Pago/i.test(text)) {
             banco = 'Mercado Pago';
-        } else if (/Picpay/i.test(text)) {
-            banco = 'PicPay';
         } else {
-            // Fallback: tenta extrair da linha "Instituição"
             const instMatch = text.match(/Institui[çc][ãa]o\s*:?\s*([^\n\r]+)/i);
-            if (instMatch) {
-                const instText = instMatch[1].trim();
-                // Se encontrou instituição, tenta mapear para um nome amigável
-                if (/Inter/i.test(instText)) banco = 'Banco Inter';
-                else if (/Brasil/i.test(instText)) banco = 'Banco do Brasil';
-                else if (/Nubank|Nu\s/i.test(instText)) banco = 'Nubank';
-                else banco = instText;
-            }
+            if (instMatch) banco = instMatch[1].trim();
         }
 
         // =============================================
-        // 5. EXTRAÇÃO DO ID / AUTENTICAÇÃO
+        // 5. EXTRAÇÃO DO ID DA TRANSAÇÃO / BARCODE / HASH
         // =============================================
         let id_transacao = 'N/A';
         
-        // Prioridade 1: "ID:" seguido de hash longo (Pix)
-        const pixIdMatch = text.match(/\bID\s*:\s*([A-Za-z0-9]{10,})/i);
-        if (pixIdMatch) {
-            id_transacao = pixIdMatch[1].trim();
+        // Prioridade 1: ID da Transação (Ex: C6 -> E31872495202607241325bxS64EZ1Oc6, BB -> E000000...)
+        const idTransacaoMatch = text.match(/(?:ID\s+da\s+Transa[çc][ãa]o|ID)\s*:?\s*([A-Za-z0-9]{10,})/i);
+        if (idTransacaoMatch) {
+            id_transacao = idTransacaoMatch[1].trim();
         }
-        
-        // Prioridade 2: "Autenticação" seguido de código
+
+        // Prioridade 2: Código de Autenticação (Ex: C6 -> 01KYA4VX7C0CQKG040V7FHDA5W)
         if (id_transacao === 'N/A') {
-            const autMatch = text.match(/Autentica[çc][ãa]o\s*(?:SISBB\s*)?:?\s*([A-Za-z0-9.:]+)/i);
+            const autMatch = text.match(/(?:C[óo]digo\s+de\s+autentica[çc][ãa]o|Autentica[çc][ãa]o\s*(?:SISBB)?)\s*:?\s*([A-Za-z0-9.:-]+)/i);
             if (autMatch) id_transacao = autMatch[1].trim();
         }
-        
-        // Prioridade 3: "Documento" seguido de número
-        if (id_transacao === 'N/A') {
-            const docMatch = text.match(/Documento\s*:?\s*([0-9.]+)/i);
-            if (docMatch) id_transacao = docMatch[1].trim();
-        }
 
-        // Prioridade 4: "NSU" seguido de número
+        // Prioridade 3: Código de Barras (Ex: Inter -> 00190.00009 02848...)
         if (id_transacao === 'N/A') {
-            const nsuMatch = text.match(/NSU\s*:?\s*([0-9]+)/i);
-            if (nsuMatch) id_transacao = nsuMatch[1].trim();
-        }
-
-        // Prioridade 5: "Código de barras" → pega a sequência numérica
-        if (id_transacao === 'N/A') {
-            const codBarrasMatch = text.match(/C[óo]digo\s+de\s+barras\s*:?\s*\n?\s*([0-9.\s]+)/i);
+            const codBarrasMatch = text.match(/C[óo]digo\s+de\s+barras\s*:?\s*\n?\s*([0-9.\s]{15,})/i);
             if (codBarrasMatch) {
-                id_transacao = codBarrasMatch[1].replace(/\s/g, '').substring(0, 30);
+                id_transacao = codBarrasMatch[1].replace(/\s/g, '').substring(0, 32);
+            }
+        }
+
+        // Prioridade 4: Cartão Final / Lançamento
+        if (id_transacao === 'N/A') {
+            const finalCartaoMatch = text.match(/Final\s+(\d{4})/i);
+            if (finalCartaoMatch) {
+                id_transacao = `Cartão Final ${finalCartaoMatch[1]}`;
             }
         }
 
         // =============================================
         // 6. EXTRAÇÃO DO STATUS
         // =============================================
-        let status = 'Processado';
-        if (/Pix\s*Enviado/i.test(text)) {
-            status = 'Pix Enviado';
-        } else if (/Pagamento\s*realizado/i.test(text)) {
+        let status = 'Pix Realizado';
+        if (/Pix\s+realizado|Pix\s+enviado/i.test(text)) {
+            status = 'Pix Realizado';
+        } else if (/Pagamento\s+realizado/i.test(text)) {
             status = 'Pagamento Realizado';
-        } else if (/Conclu[ií]do/i.test(text)) {
+        } else if (/Despesa\s+no\s+Brasil|Parcelamento/i.test(text)) {
+            status = 'Cartão de Crédito';
+        } else if (/Conclu[ií]do|Sucesso/i.test(text)) {
             status = 'Concluído';
-        } else if (/Pix\s*Recebido/i.test(text)) {
-            status = 'Pix Recebido';
-        } else if (/Transfer[êe]ncia/i.test(text)) {
-            status = 'Transferência';
-        } else if (/Total\s+a\s+pagar/i.test(text)) {
-            status = 'Link de Pagamento';
         }
 
         const result: OcrResult = {
@@ -255,7 +272,7 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
             status
         };
 
-        console.log('[+] Resultado do OCR Local extraído:', result);
+        console.log('[+] Resultado do OCR Otimizado:', result);
         return result;
 
     } catch (error) {

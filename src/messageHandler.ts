@@ -18,9 +18,12 @@ export function setupMessageHandler(sock: WASocket) {
         const remoteJid = msg.key.remoteJid;
         if (!remoteJid) return;
 
-        // Pegar JIDs permitidos do .env
+        // Pegar JIDs permitidos do .env e limpar qualquer aspa ou espaço indesejado
         const allowedJidsStr = process.env.ALLOWED_GROUP_JIDS || '';
-        const allowedJids = allowedJidsStr.split(',').map(jid => jid.trim());
+        const allowedJids = allowedJidsStr
+            .split(',')
+            .map(jid => jid.replace(/["'\s]/g, ''))
+            .filter(Boolean);
 
         // Se o JID da mensagem não estiver na lista de permitidos, ignoramos
         if (!allowedJids.includes(remoteJid)) {
