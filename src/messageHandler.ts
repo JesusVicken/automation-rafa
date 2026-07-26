@@ -80,13 +80,19 @@ export function setupMessageHandler(sock: WASocket) {
                     // 2. Formatar o valor total acumulado na planilha
                     const formattedTotal = result.totalSum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+                    // Extrair número de telefone do remetente para gerar o link direto da conversa
+                    const senderJid = msg.key.participant || msg.key.remoteJid || '';
+                    const senderPhone = senderJid.split('@')[0].split(':')[0].replace(/\D/g, '');
+                    const waLink = senderPhone ? `https://wa.me/${senderPhone}` : '';
+
                     // 3. Montar a mensagem de confirmação detalhada
                     const replyText = `📄 *COMPROVANTE RECEBIDO COM SUCESSO!*\n\n` +
                         `👤 *Pagador:* ${ocrData.pagador}\n` +
                         `🏦 *Banco:* ${ocrData.banco}\n` +
                         `💵 *Valor:* ${ocrData.valor}\n` +
                         `📅 *Data:* ${ocrData.data}\n` +
-                        `🆔 *ID:* ${ocrData.id_transacao}\n\n` +
+                        `🆔 *ID:* ${ocrData.id_transacao}\n` +
+                        (waLink ? `🔗 *Link da Conversa:* ${waLink}\n\n` : '\n') +
                         `📊 *Total Acumulado na Planilha:* ${formattedTotal}`;
 
                     // Envia a resposta marcando/citando a mensagem do comprovante (quoted: msg)
