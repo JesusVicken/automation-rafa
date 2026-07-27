@@ -41,8 +41,15 @@ export async function saveToSheets(data: OcrResult): Promise<SaveResult> {
 
         const doc = new GoogleSpreadsheet(sheetId, auth);
         await doc.loadInfo();
-        
-        const sheet = doc.sheetsByIndex[0];
+
+        // Usa o GID da aba específica se definido, senão usa a primeira aba
+        const sheetGid = process.env.GOOGLE_SHEETS_GID ? Number(process.env.GOOGLE_SHEETS_GID) : null;
+        const sheet = sheetGid !== null ? doc.sheetsById[sheetGid] : doc.sheetsByIndex[0];
+
+        if (!sheet) {
+            console.error(`[-] Aba com GID ${sheetGid} não encontrada na planilha!`);
+            return { success: false, totalSum: 0 };
+        }
         
         console.log(`[*] Inserindo dados na planilha "${doc.title}" (Aba: "${sheet.title}")...`);
         
