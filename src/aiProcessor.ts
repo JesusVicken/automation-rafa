@@ -2,11 +2,13 @@ import { createWorker, Worker } from 'tesseract.js';
 
 export interface OcrResult {
     valor: string;
-    pagador: string;
-    banco: string;
+    favorecido_fornecedor: string;
     data: string;
-    id_transacao: string;
-    status: string;
+    descricao: string;
+    tipo_documento: string;
+    classificacao: string;
+    subcategoria: string;
+    observacoes: string;
 }
 
 // Instância reutilizável do Worker do Tesseract (Singleton para alta velocidade)
@@ -110,7 +112,6 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
         for (let i = 0; i < lines.length; i++) {
             if (/Conta\s+de\s+origem/i.test(lines[i])) {
                 for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
-                    // Pega a linha com o nome (ignora ícones ou 'Banco:')
                     if (lines[j].length > 3 && !/^(Banco|Agência|Conta|JP|GO|\d+)/i.test(lines[j])) {
                         pagador = lines[j];
                         break;
@@ -154,7 +155,7 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
             if (detalheLancamento) {
                 const idx = lines.indexOf(detalheLancamento);
                 if (idx + 1 < lines.length) {
-                    pagador = lines[idx + 1]; // Pega o nome do estabelecimento
+                    pagador = lines[idx + 1];
                 }
             }
         }
@@ -221,19 +222,16 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
         // =============================================
         let id_transacao = 'N/A';
         
-        // Prioridade 1: ID da Transação (Ex: C6 -> E31872495202607241325bxS64EZ1Oc6, BB -> E000000...)
         const idTransacaoMatch = text.match(/(?:ID\s+da\s+Transa[çc][ãa]o|ID)\s*:?\s*([A-Za-z0-9]{10,})/i);
         if (idTransacaoMatch) {
             id_transacao = idTransacaoMatch[1].trim();
         }
 
-        // Prioridade 2: Código de Autenticação (Ex: C6 -> 01KYA4VX7C0CQKG040V7FHDA5W)
         if (id_transacao === 'N/A') {
             const autMatch = text.match(/(?:C[óo]digo\s+de\s+autentica[çc][ãa]o|Autentica[çc][ãa]o\s*(?:SISBB)?)\s*:?\s*([A-Za-z0-9.:-]+)/i);
             if (autMatch) id_transacao = autMatch[1].trim();
         }
 
-        // Prioridade 3: Código de Barras (Ex: Inter -> 00190.00009 02848...)
         if (id_transacao === 'N/A') {
             const codBarrasMatch = text.match(/C[óo]digo\s+de\s+barras\s*:?\s*\n?\s*([0-9.\s]{15,})/i);
             if (codBarrasMatch) {
@@ -241,7 +239,6 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
             }
         }
 
-        // Prioridade 4: Cartão Final / Lançamento
         if (id_transacao === 'N/A') {
             const finalCartaoMatch = text.match(/Final\s+(\d{4})/i);
             if (finalCartaoMatch) {
@@ -250,7 +247,7 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
         }
 
         // =============================================
-        // 6. EXTRAÇÃO DO STATUS
+        // 6. EXTRAÇÃO DO STATUS / TIPO DE DOCUMENTO
         // =============================================
         let status = 'Pix Realizado';
         if (/Pix\s+realizado|Pix\s+enviado/i.test(text)) {
@@ -263,13 +260,16 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
             status = 'Concluído';
         }
 
+        // Montagem do resultado para a planilha oficial "Gastos da Obra — Dona Fátima"
         const result: OcrResult = {
-            valor,
-            pagador,
-            banco,
-            data,
-            id_transacao,
-            status
+            valor: valor,
+            favorecido_fornecedor: pagador,
+            data: data,
+            descricao: `Pagamento via ${banco} (Autenticação: ${id_transacao})`,
+            tipo_documento: status,
+            classificacao: 'Outros',
+            subcategoria: 'Não classificado',
+            observacoes: 'Adicionado automaticamente via WhatsApp Bot'
         };
 
         console.log('[+] Resultado do OCR Otimizado:', result);

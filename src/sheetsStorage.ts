@@ -46,24 +46,27 @@ export async function saveToSheets(data: OcrResult): Promise<SaveResult> {
         
         console.log(`[*] Inserindo dados na planilha "${doc.title}" (Aba: "${sheet.title}")...`);
         
-        // Adiciona a nova linha com as colunas da planilha do usuário
+        // Adiciona a nova linha com as colunas da planilha oficial "Gastos da Obra — Dona Fátima"
         await sheet.addRow({
             'Data': data.data,
-            'Pagador': data.pagador,
-            'Banco': data.banco,
-            'Valor': data.valor,
-            'ID Transação': data.id_transacao,
-            'Status': data.status || 'Pix Enviado'
+            'Favorecido / Fornecedor': data.favorecido_fornecedor,
+            'Descrição': data.descricao,
+            'Documento (arquivo)': 'Recebido via WhatsApp',
+            'Tipo de documento': data.tipo_documento,
+            'Classificação': data.classificacao,
+            'Subcategoria': data.subcategoria,
+            'Valor (R$)': data.valor,
+            'Observações': data.observacoes
         });
 
         console.log('[+] Dados salvos na planilha com sucesso!');
 
-        // Busca todas as linhas para calcular a soma total do campo 'Valor'
+        // Busca todas as linhas para calcular a soma total do campo 'Valor (R$)'
         console.log('[*] Calculando total acumulado na planilha...');
         const rows = await sheet.getRows();
         let totalSum = 0;
         for (const row of rows) {
-            const valStr = row.get('Valor') || '';
+            const valStr = row.get('Valor (R$)') || '';
             totalSum += parseCurrency(valStr);
         }
 

@@ -100,11 +100,11 @@ export function setupMessageHandler(sock: WASocket) {
 
                     // 3. Montar a mensagem de confirmação detalhada
                     const replyText = `📄 *COMPROVANTE RECEBIDO COM SUCESSO!*\n\n` +
-                        `👤 *Pagador:* ${ocrData.pagador}\n` +
-                        `🏦 *Banco:* ${ocrData.banco}\n` +
+                        `👤 *Favorecido / Fornecedor:* ${ocrData.favorecido_fornecedor}\n` +
+                        `📝 *Descrição:* ${ocrData.descricao}\n` +
                         `💵 *Valor:* ${ocrData.valor}\n` +
                         `📅 *Data:* ${ocrData.data}\n` +
-                        `🆔 *ID:* ${ocrData.id_transacao}\n\n` +
+                        `🏷️ *Tipo:* ${ocrData.tipo_documento}\n\n` +
                         `📊 *Total Acumulado na Planilha:* ${formattedTotal}`;
 
                     // Envia a resposta marcando/citando a mensagem do comprovante (quoted: msg)
