@@ -18,15 +18,18 @@ export function setupMessageHandler(sock: WASocket) {
         const remoteJid = msg.key.remoteJid;
         if (!remoteJid) return;
 
-        // Pegar JIDs permitidos do .env e limpar qualquer aspa ou espaço indesejado
+        // Pega o ID base do JID (extrai a parte numérica antes do @g.us)
+        const getBaseId = (jid: string) => jid.split('@')[0].replace(/["'\s]/g, '');
+
+        const remoteBaseId = getBaseId(remoteJid);
         const allowedJidsStr = process.env.ALLOWED_GROUP_JIDS || '';
-        const allowedJids = allowedJidsStr
+        const allowedBaseIds = allowedJidsStr
             .split(',')
-            .map(jid => jid.replace(/["'\s]/g, ''))
+            .map(getBaseId)
             .filter(Boolean);
 
-        // Se o JID da mensagem não estiver na lista de permitidos, ignoramos
-        if (!allowedJids.includes(remoteJid)) {
+        // Se o ID do grupo não estiver na lista de permitidos, ignoramos
+        if (!allowedBaseIds.includes(remoteBaseId)) {
             return; // Filtro de ruído: Sai silenciosamente
         }
 
