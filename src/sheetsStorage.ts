@@ -42,12 +42,11 @@ export async function saveToSheets(data: OcrResult): Promise<SaveResult> {
         const doc = new GoogleSpreadsheet(sheetId, auth);
         await doc.loadInfo();
 
-        // Usa o GID da aba específica se definido, senão usa a primeira aba
-        const sheetGid = process.env.GOOGLE_SHEETS_GID ? Number(process.env.GOOGLE_SHEETS_GID) : null;
-        const sheet = sheetGid !== null ? doc.sheetsById[sheetGid] : doc.sheetsByIndex[0];
+        // Seleciona a aba pelo nome exato (mais seguro que por índice ou GID)
+        const sheet = doc.sheetsByTitle['Lançamentos'];
 
         if (!sheet) {
-            console.error(`[-] Aba com GID ${sheetGid} não encontrada na planilha!`);
+            console.error(`[-] Aba "Lançamentos" não encontrada na planilha! Abas disponíveis: ${Object.values(doc.sheetsByTitle).map(s => s.title).join(', ')}`);
             return { success: false, totalSum: 0 };
         }
         
