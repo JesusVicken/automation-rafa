@@ -99,13 +99,17 @@ export function setupMessageHandler(sock: WASocket) {
                     const formattedTotal = result.totalSum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
                     // 3. Montar a mensagem de confirmação detalhada
+                    const sheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID || '';
+                    const sheetLink = sheetId ? `https://docs.google.com/spreadsheets/d/${sheetId}/edit` : '';
+
                     const replyText = `📄 *COMPROVANTE RECEBIDO COM SUCESSO!*\n\n` +
                         `👤 *Favorecido / Fornecedor:* ${ocrData.favorecido_fornecedor}\n` +
                         `📝 *Descrição:* ${ocrData.descricao}\n` +
                         `💵 *Valor:* ${ocrData.valor}\n` +
                         `📅 *Data:* ${ocrData.data}\n` +
                         `🏷️ *Tipo:* ${ocrData.tipo_documento}\n\n` +
-                        `📊 *Total Acumulado na Planilha:* ${formattedTotal}`;
+                        `📊 *Total Acumulado:* ${formattedTotal}\n` +
+                        (sheetLink ? `🔗 *Acessar Planilha:* ${sheetLink}` : '');
 
                     // Envia a resposta marcando/citando a mensagem do comprovante (quoted: msg)
                     await sock.sendMessage(remoteJid, { text: replyText }, { quoted: msg });
