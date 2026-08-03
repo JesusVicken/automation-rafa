@@ -18,8 +18,13 @@ export function setupMessageHandler(sock: WASocket) {
         const remoteJid = msg.key.remoteJid;
         if (!remoteJid) return;
 
-        // Pega o ID base do JID (extrai a parte numérica antes do @g.us)
-        const getBaseId = (jid: string) => jid.split('@')[0].replace(/["'\s]/g, '');
+        // Pega o ID base do JID (extrai a parte numérica limpa, tratando @g.us ou 2g.us/8g.us)
+        const getBaseId = (jid: string) => {
+            let clean = jid.trim().replace(/["']/g, '');
+            clean = clean.split('@')[0];
+            clean = clean.replace(/(?:2|8)?g\.?us$/i, '');
+            return clean.replace(/[^0-9-]/g, '');
+        };
 
         const remoteBaseId = getBaseId(remoteJid);
         const allowedJidsStr = process.env.ALLOWED_GROUP_JIDS || '';
