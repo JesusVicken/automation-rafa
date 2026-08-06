@@ -9,6 +9,7 @@ export interface OcrResult {
     classificacao: string;
     subcategoria: string;
     observacoes: string;
+    aba: string; // Nome da aba de destino ("Pessoal", "Materiais" ou "Outros")
 }
 
 // Instância reutilizável do Worker do Tesseract (Singleton para alta velocidade)
@@ -260,16 +261,27 @@ export async function processMediaWithGemini(buffer: Buffer, mimeType: string = 
             status = 'Concluído';
         }
 
-        // Montagem do resultado para a planilha oficial "Gastos da Obra — Dona Fátima"
+        // =============================================
+        // 7. ROTEAMENTO DE ABA ("Pessoal", "Materiais" ou "Outros")
+        // =============================================
+        let classificacao = 'Outros';
+        if (/m[ãa]o\s+de\s+obra|engenhar|servi[çc]o|sal[áa]rio|di[áa]ria|empreiteira|pedreiro|ajudante/i.test(text)) {
+            classificacao = 'Pessoal';
+        } else if (/materiai|cimento|areia|tijolo|ferro|metal|tintas|madeira|brita|equipamento|nf-e|nfe|compras?/i.test(text)) {
+            classificacao = 'Materiais';
+        }
+
+        // Montagem do resultado para roteamento de abas limpo no Google Sheets
         const result: OcrResult = {
             valor: valor,
             favorecido_fornecedor: pagador,
             data: data,
             descricao: `Pagamento via ${banco} (Autenticação: ${id_transacao})`,
             tipo_documento: status,
-            classificacao: 'Outros',
+            classificacao: classificacao,
             subcategoria: 'Não classificado',
-            observacoes: 'Adicionado automaticamente via WhatsApp Bot'
+            observacoes: 'Adicionado automaticamente via WhatsApp Bot',
+            aba: classificacao // Define a aba de destino ("Pessoal", "Materiais" ou "Outros")
         };
 
         console.log('[+] Resultado do OCR Otimizado:', result);

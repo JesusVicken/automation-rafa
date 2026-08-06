@@ -42,17 +42,18 @@ export async function saveToSheets(data: OcrResult): Promise<SaveResult> {
         const doc = new GoogleSpreadsheet(sheetId, auth);
         await doc.loadInfo();
 
-        // Seleciona a aba pelo nome exato (mais seguro que por índice ou GID)
-        const sheet = doc.sheetsByTitle['Lançamentos'];
+        // Roteamento dinâmico para a aba correspondente ("Pessoal", "Materiais" ou "Outros")
+        const targetTitle = data.aba || data.classificacao || 'Outros';
+        const sheet = doc.sheetsByTitle[targetTitle] || doc.sheetsByTitle['Outros'] || doc.sheetsByTitle['Lançamentos'] || doc.sheetsByIndex[0];
 
         if (!sheet) {
-            console.error(`[-] Aba "Lançamentos" não encontrada na planilha! Abas disponíveis: ${Object.values(doc.sheetsByTitle).map(s => s.title).join(', ')}`);
+            console.error(`[-] Aba "${targetTitle}" não encontrada na planilha! Abas disponíveis: ${Object.keys(doc.sheetsByTitle).join(', ')}`);
             return { success: false, totalSum: 0 };
         }
         
         console.log(`[*] Inserindo dados na planilha "${doc.title}" (Aba: "${sheet.title}")...`);
         
-        // Adiciona a nova linha com as colunas da planilha oficial "Gastos da Obra — Dona Fátima"
+        // Adiciona a nova linha diretamente via .addRow() (injetada a partir da linha 2 sem interferência de totais fixos no fundo)
         await sheet.addRow({
             'Data': data.data,
             'Favorecido / Fornecedor': data.favorecido_fornecedor,
@@ -65,10 +66,10 @@ export async function saveToSheets(data: OcrResult): Promise<SaveResult> {
             'Observações': data.observacoes
         });
 
-        console.log('[+] Dados salvos na planilha com sucesso!');
+        console.log(`[+] Dados salvos na aba "${sheet.title}" com sucesso!`);
 
-        // Busca todas as linhas para calcular a soma total do campo 'Valor (R$)'
-        console.log('[*] Calculando total acumulado na planilha...');
+        // Calcula a soma da aba em que o dado foi inserido para enviar de confirmação no WhatsApp
+        console.log(`[*] Calculando total acumulado na aba "${sheet.title}"...`);
         const rows = await sheet.getRows();
         let totalSum = 0;
         for (const row of rows) {
@@ -76,7 +77,7 @@ export async function saveToSheets(data: OcrResult): Promise<SaveResult> {
             totalSum += parseCurrency(valStr);
         }
 
-        console.log(`[+] Total acumulado calculado: R$ ${totalSum.toFixed(2)}`);
+        console.log(`[+] Total acumulado na aba "${sheet.title}": R$ ${totalSum.toFixed(2)}`);
 
         return { success: true, totalSum };
 
